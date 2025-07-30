@@ -174,9 +174,9 @@ const logoutUser = asyncHandler(
       logger.info("Refresh token delete on logout");
       res
         .status(200)
-        .json({ success: true, message: "Logged out successfully" });
+        .json({ success: true, message: "Logged out successfully!" });
     }
-  }
+  } 
 );
 
 export { registerUser, loginUser, refreshToken, logoutUser };

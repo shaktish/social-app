@@ -4,8 +4,8 @@ const mediaSchema = new Schema(
   {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
-      required:true,
-      ref:'User',
+      required: true,
+      ref: "User",
     },
     publicId: {
       type: String,
