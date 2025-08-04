@@ -2,60 +2,68 @@
 version: '3.8'
 
 services: 
+  identity-service : 
+    build: ./identity-service 
+    env_file: 
+      - ./identity-service/.env.lle
+    depends_on:
+      - redis 
+      - rabbitmq 
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://rabbitmq:5672    
+    restart: always
+
+  post-service : 
+    build: ./post-service 
+    env_file: 
+      - ./post-service/.env.lle
+    depends_on:
+      - redis 
+      - rabbitmq 
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+    restart: always
+  media-service : 
+    build: ./media-service 
+    env_file: 
+      - ./media-service/.env.lle
+    depends_on:
+      - redis 
+      - rabbitmq 
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+    restart: always
+  search-service : 
+    build: ./search-service 
+    env_file: 
+      - ./search-service/.env.lle
+    depends_on:
+      - redis 
+      - rabbitmq 
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+    restart: always
   api-gateway:
     build : ./api-gateway 
     ports : 
       - "5010:5010"
     env_file: 
-      - ./api-gateway/.env 
+      - ./api-gateway/.env.lle
     depends_on:
       - redis 
       - rabbitmq 
     environment:
       - REDIS_URL=redis://redis:6379
       - RABBITMQ_URL=amqp://rabbitmq:5672
-
-  identity-service : 
-    build: ./identity-service 
-    env_file: 
-      - ./identity-service/.env
-    depends_on:
-      - redis 
-      - rabbitmq 
-    environment:
-      - REDIS_URL=redis://redis:6379
-      - RABBITMQ_URL=amqp://rabbitmq:5672
-
-  post-service : 
-    build: ./post-service 
-    env_file: 
-      - ./post-service/.env
-    depends_on:
-      - redis 
-      - rabbitmq 
-    environment:
-      - REDIS_URL=redis://redis:6379
-      - RABBITMQ_URL=amqp://rabbitmq:5672
-  media-service : 
-    build: ./media-service 
-    env_file: 
-      - ./media-service/.env
-    depends_on:
-      - redis 
-      - rabbitmq 
-    environment:
-      - REDIS_URL=redis://redis:6379
-      - RABBITMQ_URL=amqp://rabbitmq:5672
-  search-service : 
-    build: ./search-service 
-    env_file: 
-      - ./search-service/.env
-    depends_on:
-      - redis 
-      - rabbitmq 
-    environment:
-      - REDIS_URL=redis://redis:6379
-      - RABBITMQ_URL=amqp://rabbitmq:5672
+      - IDENTITY_SERVICE_URL=http://identity-service:5009
+      - POST_SERVICE_URL=http://post-service:5011
+      - MEDIA_SERVICE_URL=http://media-service:5012
+      - SEARCH_SERVICE_URL=http://search-service:5013
+    restart: always
 
   redis:
     image: redis:7-alpine
