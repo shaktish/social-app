@@ -5,12 +5,13 @@
     - [🔒 Security \& DB Utilities](#-security--db-utilities)
     - [🛠️ TypeScript \& Development Tools](#️-typescript--development-tools)
   - [Utils](#utils)
+    - [winston logger](#winston-logger)
+    - [AppError](#apperror)
     - [Global Error Handler](#global-error-handler)
     - [AsyncHandler](#asynchandler)
     - [Logger handler](#logger-handler)
     - [ConnectDb](#connectdb)
     - [dotEnv](#dotenv)
-    - [winston logger](#winston-logger)
     - [health route](#health-route)
   - [Server.ts](#serverts)
 - [IO Redis](#io-redis)
@@ -106,112 +107,248 @@
 ### common core dependencies 
 ✅ **Common Core Dependencies**
 
-| Package         | Purpose                                                                 |
-|-----------------|-------------------------------------------------------------------------|
-| `express`       | Web server framework                                                    |
-| `dotenv`        | Load `.env` config variables                                            |
-| `cors`          | Enables Cross-Origin Resource Sharing (API access from browsers)        |
-| `helmet`        | Secures HTTP headers (against XSS, clickjacking etc.)                   |
-| `winston`       | Advanced logging system                                                 |
-| `ioredis`       | Redis client for caching, rate-limiting, pub/sub                        |
-| `jsonwebtoken`  | For generating/verifying JWT tokens                                     |
-| `joi`           | Schema validation for request bodies/params/headers                     |
-| `ts-node-dev`   | Auto-reloads TypeScript project on save (for development)               |
-| `typescript`    | Enables TypeScript usage                                                |
-| `@types/*`      | TypeScript typings for JavaScript libraries                             |
+| Package        | Purpose                                                          |
+| -------------- | ---------------------------------------------------------------- |
+| `express`      | Web server framework                                             |
+| `dotenv`       | Load `.env` config variables                                     |
+| `cors`         | Enables Cross-Origin Resource Sharing (API access from browsers) |
+| `helmet`       | Secures HTTP headers (against XSS, clickjacking etc.)            |
+| `winston`      | Advanced logging system                                          |
+| `ioredis`      | Redis client for caching, rate-limiting, pub/sub                 |
+| `jsonwebtoken` | For generating/verifying JWT tokens                              |
+| `joi`          | Schema validation for request bodies/params/headers              |
+| `ts-node-dev`  | Auto-reloads TypeScript project on save (for development)        |
+| `typescript`   | Enables TypeScript usage                                         |
+| `@types/*`     | TypeScript typings for JavaScript libraries                      |
 ### 🔌 Additional Core Dependency
-| Package             | Purpose                                 |
-|---------------------|------------------------------------------|
-| express-http-proxy  | Proxy HTTP requests to microservices     |
+| Package            | Purpose                              |
+| ------------------ | ------------------------------------ |
+| express-http-proxy | Proxy HTTP requests to microservices |
 ### 🔒 Security & DB Utilities
 
-| Package             | Purpose                                                                 |
-|---------------------|-------------------------------------------------------------------------|
-| argon2              | Secure password hashing algorithm                                       |
-| express-rate-limit  | Limits repeated requests from same IP (e.g., login attempts)            |
-| rate-limit-redis    | Stores rate limits in Redis (shared across distributed systems)         |
-| mongoose            | MongoDB ODM (manages schemas, models, queries)                          |
+| Package            | Purpose                                                         |
+| ------------------ | --------------------------------------------------------------- |
+| argon2             | Secure password hashing algorithm                               |
+| express-rate-limit | Limits repeated requests from same IP (e.g., login attempts)    |
+| rate-limit-redis   | Stores rate limits in Redis (shared across distributed systems) |
+| mongoose           | MongoDB ODM (manages schemas, models, queries)                  |
 
 
 ### 🛠️ TypeScript & Development Tools
 
-| Package         | Purpose                                                       |
-|------------------|---------------------------------------------------------------|
-| @types/*         | TypeScript support for various JavaScript packages            |
-| ts-node-dev      | Watches and runs TypeScript in development with auto-reload   |
-| typescript       | TypeScript compiler                                            |
+| Package     | Purpose                                                     |
+| ----------- | ----------------------------------------------------------- |
+| @types/*    | TypeScript support for various JavaScript packages          |
+| ts-node-dev | Watches and runs TypeScript in development with auto-reload |
+| typescript  | TypeScript compiler                                         |
 ## Utils 
 
-### Global Error Handler 
+### winston logger 
 ```javascript 
-export class AppError extends Error {
-  status: number;
-  isOperational: boolean;
-
-  constructor(message: string, status = 500) {
-    super(message);
-    this.status = status;
-    this.isOperational = true;
-    Error.captureStackTrace(this, this.constructor);
-  }
-}
-
-import { NextFunction, Request, Response } from "express";
-import logger from "../utils/logger";
-import { AppError } from "./appError";
+import winston, { Logger } from "winston";
 import config from "../config/config";
 
-export const globalErrorHandler = (
-  err: AppError | Error,
+/**
+ * Create a Winston logger instance.
+ * Winston allows multiple transports (console, file, etc.)
+ * and different formats for structured logging.
+ */
+const winstonLogger: Logger = winston.createLogger({
+  // Set log level based on environment
+  // - In production: only log 'info' and above (info, warn, error)
+  // - In development: include 'debug' logs too
+  level: config.env === "production" ? "info" : "debug",
+
+  // Combine multiple formats
+  format: winston.format.combine(
+    winston.format.timestamp(),                // Adds a timestamp to each log
+    winston.format.errors({ stack: true }),    // Includes stack trace in error logs
+    winston.format.splat(),                    // Enables printf-style string interpolation
+    winston.format.json()                      // Output logs in JSON format (great for parsing)
+  ),
+
+  // Default metadata for every log entry
+  defaultMeta: { service: "api-gateway" },
+
+  // Define where to send the logs
+  transports: [
+    // Console transport: outputs logs to terminal
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),             // Adds colors to log levels for readability
+        winston.format.simple()                // Simplified output (message + level)
+      ),
+    }),
+
+    // File transport: logs only 'error' level messages into error.log
+    new winston.transports.File({
+      filename: "error.log",
+      level: "error",
+    }),
+
+    // File transport: logs all levels (info, debug, error, etc.) into combined.log
+    new winston.transports.File({
+      filename: "combined.log",
+    }),
+  ],
+});
+
+export default winstonLogger;
+```
+
+### AppError 
+
+```javascript
+// ✅ Custom error class for handling operational (expected) errors in your app
+// Example usage: throw new AppError("User not found", 404);
+
+class AppError extends Error {
+    public readonly statusCode: number;
+    // Flag to indicate this is an expected error (not a code bug)
+    public readonly isOperational: boolean;
+
+    /**
+    * @param message - Error message shown to the user or logged
+    * @param statusCode - HTTP status code (defaults to 500 for server errors)
+    */
+    constructor(message: string, status = 500) {
+        // Call the parent Error constructor to set the message
+        super(message);
+        // 🔧 Fix the prototype chain (important when extending built-in classes like Error)
+        // Without this line, "instanceof AppError" may fail in some environments
+        Object.setPrototypeOf(this, new.target.prototype);
+        this.statusCode = status;
+        // Mark the error as "operational" — i.e., it's a known, handled error
+        // (not caused by a programming bug)
+        this.isOperational = true;
+        // 🧩 Captures the stack trace for easier debugging
+        // Omits the constructor itself from the trace, so logs are cleaner
+        Error.captureStackTrace(this, this.constructor);
+    }
+}
+
+```
+### Global Error Handler 
+```javascript 
+import { Request, Response, NextFunction } from "express";
+import logger from "../utils/winstonLogger"; // Winston instance
+import { AppError } from "../utils/AppError";
+
+/**
+ * 🌐 Global Error Handling Middleware
+ * Handles all application errors consistently and logs them via Winston.
+ */
+const globalErrorHandler = (
+  error: AppError,
   _req: Request,
   res: Response,
   _next: NextFunction
 ) => {
-  const isDevelopmentEnv = config.env === "development";
-  logger.error(err.stack);
-  if (err instanceof AppError) {
-    return res.status(err.status).json({
-      message: err.message,
-      ...(isDevelopmentEnv && { stack: err.stack }),
+  // Determine status and message
+  const statusCode = error?.statusCode ?? 500;
+  const message = error?.message || "Internal Server Error";
+
+  // ✅ Log detailed error info via Winston
+  if (error.isOperational) {
+    // Expected / handled errors (e.g., validation, bad input)
+    winstonLogger.warn("⚠️ Operational Error", {
+      statusCode,
+      message,
+      stack: error.stack,
+    });
+  } else {
+    // Unexpected / programming or system errors
+    winstonLogger.error("💥 Unexpected Error", {
+      statusCode,
+      message,
+      stack: error.stack,
     });
   }
-  return res
-    .status(500)
-    .json({
-      message: "Internal server error",
-      ...(isDevelopmentEnv && { stack: err.stack }),
-    });
+
+  // ✅ Respond with standardized error payload
+  res.status(statusCode).json({
+    success: false,
+    message,
+  });
 };
 
+export default globalErrorHandler;
 ```
 ### AsyncHandler 
 
 ```javascript 
-import { NextFunction, Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 
-type AsyncHandlerI<P = any, ResBody = any, ReqBody = any, ReqQuery = any> = (
-  req: Request<P, ResBody, ReqBody, ReqQuery>,
-  res: Response<ResBody>,
+/**
+ * Generic type definition for an async Express route handler.
+ *
+ * P      - type of req.params
+ * ResBody - type of response body
+ * ReqBody - type of request body
+ * ReqQuery - type of query params
+ */
+type AsyncHandlerI<
+  P = any,
+  ResBody = any,
+  ReqBody = any,
+  ReqQuery = any
+> = (
+  req: Request<P, ResBody, ReqBody, ReqQuery>, // Typed request object
+  res: Response<ResBody>,                     // Typed response object
+  next: NextFunction                           // Next function to pass control
+) => Promise<any>;                            // Returns a Promise (async function)
+
+/**
+ * asyncHandler wraps an async route handler and automatically forwards any errors
+ * to Express's global error handling middleware.
+ *
+ * This avoids the need to write try/catch blocks in every async route.
+ */
+const asyncHandler = (fn: AsyncHandlerI) => (
+  req: Request,
+  res: Response,
   next: NextFunction
-) => Promise<any>;
-
-const asyncHandler = (fn: AsyncHandlerI) => (req : Request, res : Response, next:NextFunction) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
-} 
+) => {
+  // Wrap the async function in Promise.resolve to catch any rejected promises
+  // If the promise rejects, forward the error to next(), which triggers the global error handler
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
 
 export default asyncHandler;
+
+// example 
+import asyncHandler from "../utils/asyncHandler";
+import { AppError } from "../utils/AppError";
+
+app.get("/users/:id", asyncHandler(async (req, res) => {
+  const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!user) throw new AppError("User not found", 404);
+  res.json(user);
+}));
 ```
 
 ### Logger handler 
 ```javascript 
-import { NextFunction, Request, Response } from "express";
-import logger from "../utils/logger";
+import { Request, Response, NextFunction } from "express";
+import winstonLogger from "../utils/winstonLogger";
 
-export const loggerHandler = (req:Request, res:Response, next : NextFunction) => {
-    logger.info(`Received ${req.method} request to ${req.url}`)
-    logger.info(`Request body ${req.body}`);
-    next();
-}
+/**
+ * Request Logger Middleware
+ * Logs every incoming request method, URL, and body.
+ */
+const loggerHandler = (req: Request, _res: Response, next: NextFunction) => {
+  // Log the request method and URL
+  winstonLogger.info(`📥 Received ${req.method} request to ${req.url}`);
+
+  // Log request body safely (convert to string)
+  if (Object.keys(req.body || {}).length > 0) {
+    winstonLogger.info(`🧾 Request Body: ${JSON.stringify(req.body)}`);
+  }
+
+  next();
+};
+
+export default loggerHandler;
 ```
 
 ### ConnectDb 
@@ -275,34 +412,7 @@ const config : Config = {
 export default config; 
 ```
 
-### winston logger 
-```javascript 
-import winston, { Logger } from "winston";
-import config from "../config/config";
 
-const logger: Logger = winston.createLogger({
-  level: config.env === "production" ? "info" : "debug",
-  format: winston.format.combine(
-    winston.format.timestamp(), // log with time 
-    winston.format.errors({ stack: true }), 
-    winston.format.splat(), // enables for msg templating
-    winston.format.json() 
-  ),
-  defaultMeta: { service: "search-service" },
-  transports: [
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        winston.format.simple()
-      ),
-    }),
-    new winston.transports.File({filename : 'error.log', level: 'error'}),
-    new winston.transports.File({filename : 'combined.log'})
-  ],
-});
-
-export default logger;
-```
 
 ### health route 
 ```javascript 
@@ -767,18 +877,18 @@ JWT (JSON Web Token) is a compact, URL-safe way to represent claims between two 
 - header.payload.signature
 
 ## 🔐 Authentication Flow Summary
-| Step     | What Happens                                                                 |
-|----------|-------------------------------------------------------------------------------|
-| Register | User signs up → tokens (access + refresh) are generated and returned         |
-| Login    | User logs in with credentials → new tokens are generated                     |
-| Refresh  | Client sends refresh token → new tokens issued, old refresh token deleted    |
-| Logout   | Refresh token is deleted → access token becomes irrelevant on client         |
+| Step     | What Happens                                                              |
+| -------- | ------------------------------------------------------------------------- |
+| Register | User signs up → tokens (access + refresh) are generated and returned      |
+| Login    | User logs in with credentials → new tokens are generated                  |
+| Refresh  | Client sends refresh token → new tokens issued, old refresh token deleted |
+| Logout   | Refresh token is deleted → access token becomes irrelevant on client      |
 
 ## Tokens You Use
-| **Token Type**   | **Lifetime** | **Stored In**         | **Purpose**                            |
-|------------------|--------------|------------------------|----------------------------------------|
-| **Access Token** | Short        | Memory / Cookie        | Sent in `Authorization` header for API |
-| **Refresh Token**| Long         | Server-side (Database) | Used to issue new access tokens        |
+| **Token Type**    | **Lifetime** | **Stored In**          | **Purpose**                            |
+| ----------------- | ------------ | ---------------------- | -------------------------------------- |
+| **Access Token**  | Short        | Memory / Cookie        | Sent in `Authorization` header for API |
+| **Refresh Token** | Long         | Server-side (Database) | Used to issue new access tokens        |
 
 ### 🔐Access Token
 - ⏳ Expires quickly (e.g., 15–30 minutes)
